@@ -90,6 +90,10 @@ my $o_warn=		undef;		# warning options
 my $o_crit=		undef;  	# critical options
 my $o_ratewarn=		undef;  	# warning options
 my $o_ratecrit=		undef;  	# critical options
+my $o_txratewarn=	undef;  	# warning options
+my $o_txratecrit=	undef;  	# critical options
+my $o_rxratewarn=	undef;  	# warning options
+my $o_rxratecrit=	undef;  	# critical options
 
 # Login options specific
 my $o_community = 	'public'; 	# community
@@ -111,7 +115,7 @@ my $mimosa_chains = 4;
 sub p_version { print "check_wifi_stats version : $Version\n"; }
 
 sub print_usage {
-    print "Usage: $0 [-v] -H <host> [-p <port>] [-C <community>] [-P <snmp_version>] [-L seclevel] [-U secname] [-a authproto] [-A authpasswd] [-x privproto] [-X privpasswd] -n <name in desc_oid> [--admin] [-r] [-f] [-T <radio_type>] -w <warn levels> -c <crit levels> [--rate_warning=<Mbps> --rate_crritical=<Mbps>] [-o <octet_length>] [-t <timeout>] [-s] [-V]\n";
+    print "Usage: $0 [-v] -H <host> [-p <port>] [-C <community>] [-P <snmp_version>] [-L seclevel] [-U secname] [-a authproto] [-A authpasswd] [-x privproto] [-X privpasswd] -n <name in desc_oid> [--admin] [-r] [-f] [-T <radio_type>] -w <warn levels> -c <crit levels> [--rate_warning=<Mbps> --rate_crritical=<Mbps>] [--txrate_warning=<Mbps> --txrate_crritical=<Mbps>] [--rxrate_warning=<Mbps> --rxrate_crritical=<Mbps>] [-o <octet_length>] [-t <timeout>] [-s] [-V]\n";
 }
 
 sub isnnum { # Return true if arg is not a number
@@ -163,13 +167,13 @@ sub help {
   usually 1472,1452,1460 or 1440.     
 -f, --perfparse
    Perfparse compatible output (no output when interface is down).
--w, --warning=dbm
-   dbm level below which a warning is given
--c, --critical=dbm
-   dbm level below which a critical is given
---rate_warning=Mbps
+-w, --warning=dBm
+   dBm level below which a warning is given
+-c, --critical=dBm
+   dBm level below which a critical is given
+--rate_warning=Mbps or --txrate_warning=Mbps --rxrate_warning=Mbps
    Mbps below which a warning is given (0 for no warning)
---rate_critical=Mbps
+--rate_critical=Mbps or --txrate_critical=Mbps --rxrate_critical=Mbps
    Mbps below which a critical is given (0 for no warning)
 -s, --short=int
    Make the output shorter : only the first <n> chars of the interface(s)
@@ -216,6 +220,10 @@ sub check_options {
         'c:i'   => \$o_crit,      	'critical:i'   	=> \$o_crit,
 					'rate_warning:i'   	=> \$o_ratewarn,
 					'rate_critical:i'   	=> \$o_ratecrit,
+					'txrate_warning:i'   	=> \$o_txratewarn,
+					'txrate_critical:i'   	=> \$o_txratecrit,
+					'rxrate_warning:i'   	=> \$o_rxratewarn,
+					'rxrate_critical:i'   	=> \$o_rxratecrit,
         's:i'   => \$o_short,      	'short:i'   	=> \$o_short,
 	'o:i'   => \$o_octetlength,    	'octetlength:i' => \$o_octetlength,
     );
@@ -498,7 +506,7 @@ if ($o_type eq 'mikrotik') {
 }
 
 # Get the perf value if -f (performance) option defined or -k (check bandwidth)
-if ( (defined($o_perf)) || (defined($o_warn)) || (defined($o_crit)) || (defined($o_ratewarn)) || (defined($o_ratecrit)) ) {
+if ( (defined($o_perf)) || (defined($o_warn)) || (defined($o_crit)) || (defined($o_ratewarn)) || (defined($o_ratecrit)) || (defined($o_txratewarn)) || (defined($o_txratecrit)) || (defined($o_rxratewarn)) || (defined($o_rxratecrit)) ) {
   if ( $o_type eq 'mikrotik' ) {
     @oid_perf=(@oid_reg_signal0,@oid_reg_txrate,@oid_reg_rxrate);
   } elsif ( $o_type eq 'mikrotik_60g' ) {
@@ -574,11 +582,13 @@ for (my $i=0;$i < $num_reg_int; $i++) {
   if ( (defined($o_crit)) && ( $signal <= $o_crit) ) {
     $int_status = 2;
     $final_status = 2;
-    $details_out.=sprintf("signal %s < %s critical\n",$signal, $o_crit);
+    $details_out.=sprintf("signal %0.0f < %0.0f dBm critical\n",$signal, $o_crit);
   } elsif ( (defined($o_warn)) && ( $signal <= $o_warn) ) {
     $final_status = ($final_status==2) ? 2 : 1;
     $int_status = 1;
-    $details_out.=sprintf("signal %s < %s warning\n",$signal, $o_crit);
+    $details_out.=sprintf("signal %0.0f < %0.0f dBm warning\n",$signal, $o_warn);
+  } elsif (defined($o_warn)) {
+    $details_out.=sprintf("signal %0.0f > %0.0f dBm\n",$signal, $o_warn);
   }
 
   my $rate = $$resultf{$oid_reg_txrate[$i]};
@@ -588,11 +598,36 @@ for (my $i=0;$i < $num_reg_int; $i++) {
   if ( (defined($o_ratecrit)) && ( $rate <= $o_ratecrit * 1048576) ) {
     $int_status = 2;
     $final_status = 2;
-    $details_out.=sprintf("rate %s < %s critical\n",$rate/1048576, $o_ratecrit);
+    $details_out.=sprintf("rate %0.0f < %0.0f Mbps critical\n",$rate/1048576, $o_ratecrit);
   } elsif ( (defined($o_ratewarn)) && ( $rate <= $o_ratewarn * 1048576) ) {
     $final_status = ($final_status==2) ? 2 : 1;
     $int_status = 1;
-    $details_out.=sprintf("rate %s < %s warning\n",$rate/1048576, $o_ratecrit);
+    $details_out.=sprintf("rate %0.0f < %0.0f Mbps warning\n",$rate/1048576, $o_ratewarn);
+  } elsif (defined($o_ratewarn)) {
+    $details_out.=sprintf("rate %0.0f > %0.0f Mbps\n",$rate/1048576, $o_ratewarn);
+  }
+
+  if ( (defined($o_txratecrit)) && ( $$resultf{$oid_reg_txrate[$i]} <= $o_txratecrit * 1048576) ) {
+    $int_status = 2;
+    $final_status = 2;
+    $details_out.=sprintf("txrate %0.0f < %0.0f Mbps critical\n",$$resultf{$oid_reg_txrate[$i]}/1048576, $o_txratecrit);
+  } elsif ( (defined($o_txratewarn)) && ( $$resultf{$oid_reg_txrate[$i]} <= $o_txratewarn * 1048576) ) {
+    $final_status = ($final_status==2) ? 2 : 1;
+    $int_status = 1;
+    $details_out.=sprintf("txrate %0.0f < %0.0f Mbps warning\n",$$resultf{$oid_reg_txrate[$i]}/1048576, $o_txratewarn);
+  } elsif (defined($o_txratewarn)) {
+    $details_out.=sprintf("txrate %0.0f > %0.0f Mbps\n",$$resultf{$oid_reg_txrate[$i]}/1048576, $o_txratewarn);
+  }
+  if ( (defined($o_rxratecrit)) && ( $$resultf{$oid_reg_rxrate[$i]} <= $o_rxratecrit * 1048576) ) {
+    $int_status = 2;
+    $final_status = 2;
+    $details_out.=sprintf("rxrate %0.0f < %0.0f Mbps critical\n",$$resultf{$oid_reg_rxrate[$i]}/1048576, $o_rxratecrit);
+  } elsif ( (defined($o_rxratewarn)) && ( $$resultf{$oid_reg_rxrate[$i]} <= $o_rxratewarn * 1048576) ) {
+    $final_status = ($final_status==2) ? 2 : 1;
+    $int_status = 1;
+    $details_out.=sprintf("rxrate %0.0f < %0.0f Mbps warning\n",$$resultf{$oid_reg_rxrate[$i]}/1048576, $o_rxratewarn);
+  } elsif (defined($o_rxratewarn)) {
+    $details_out.=sprintf("rxrate %0.0f > %0.0f Mbps\n",$$resultf{$oid_reg_rxrate[$i]}/1048576, $o_rxratewarn);
   }
 
   if (defined ($o_short)) {
@@ -600,13 +635,13 @@ for (my $i=0;$i < $num_reg_int; $i++) {
     if ($o_short < 0) {$short_desc=substr($oid_reg_name[$i],$o_short);}
     else {$short_desc=substr($oid_reg_name[$i],0,$o_short);}
     if ( (defined($o_perf)) || (defined($o_warn)) || (defined($o_crit)) ) {
-      $print_out.=sprintf("%s:%s (%i dB%s)",$short_desc, $status{$int_status}, $$resultf{$oid_reg_signal0[$i]}, $rate_summary );
+      $print_out.=sprintf("%s:%s (%0.0f dBm%s)",$short_desc, $status{$int_status}, $$resultf{$oid_reg_signal0[$i]}, $rate_summary );
     } else {
       $print_out.=sprintf("%s:%s",$short_desc, $status{$int_status} );
     }
   } else {
     if ( (defined($o_perf)) || (defined($o_warn)) || (defined($o_crit)) ) {
-      $print_out.=sprintf("%s:%s (%i dB%s)",$oid_reg_name[$i], $status{$int_status}, $$resultf{$oid_reg_signal0[$i]}, $rate_summary );
+      $print_out.=sprintf("%s:%s (%0.0f dBm%s)",$oid_reg_name[$i], $status{$int_status}, $$resultf{$oid_reg_signal0[$i]}, $rate_summary );
     } else {
       $print_out.=sprintf("%s:%s",$oid_reg_name[$i], $status{$int_status} );
     }
@@ -622,18 +657,21 @@ for (my $i=0;$i < $num_reg_int; $i++) {
     $perf_out .= ";$o_warn" if (defined($o_warn));
     $perf_out .= ";$o_crit" if ( (defined($o_warn)) && (defined($o_crit)) );
 
-    $perf_out .= " '" . $oid_reg_name[$i] ."_txrate_bps'=".$$resultf{$oid_reg_txrate[$i]} if ($o_type eq 'mikrotik');
-    $perf_out .= " '" . $oid_reg_name[$i] ."_rxrate_bps'=".$$resultf{$oid_reg_rxrate[$i]} if ($o_type eq 'mikrotik');
-    $perf_out .= " '" . $oid_reg_name[$i] ."_rate_bps'=".$$resultf{$oid_reg_txrate[$i]} if ($o_type eq 'mikrotik_60g');
+    if ($o_type eq 'mikrotik' || $o_type eq 'airfiber' || $o_type eq 'mimosa' ) {
+      $perf_out .= " '" . $oid_reg_name[$i] ."_txrate_bps'=".$$resultf{$oid_reg_txrate[$i]};
+      $perf_out .= ";" . ($o_txratewarn * 1048576) if (defined($o_txratewarn));
+      $perf_out .= ";" . ($o_txratecrit * 1048576) if ( (defined($o_txratewarn)) && (defined($o_txratecrit)) );
+      $perf_out .= " '" . $oid_reg_name[$i] ."_rxrate_bps'=".$$resultf{$oid_reg_rxrate[$i]};
+      $perf_out .= ";" . ($o_rxratewarn * 1048576) if (defined($o_rxratewarn));
+      $perf_out .= ";" . ($o_rxratecrit * 1048576) if ( (defined($o_rxratewarn)) && (defined($o_rxratecrit)) );
+    }
 
-    $perf_out .= " '" . $oid_reg_name[$i] ."_txrate_bps'=".$$resultf{$oid_reg_txrate[$i]} if ($o_type eq 'airfiber');
-    $perf_out .= " '" . $oid_reg_name[$i] ."_rxrate_bps'=".$$resultf{$oid_reg_rxrate[$i]} if ($o_type eq 'airfiber');
+    if ($o_type eq 'mikrotik_60g') {
+      $perf_out .= " '" . $oid_reg_name[$i] ."_rate_bps'=".$$resultf{$oid_reg_txrate[$i]};
+      $perf_out .= ";" . ($o_ratewarn * 1048576) if (defined($o_ratewarn));
+      $perf_out .= ";" . ($o_ratecrit * 1048576) if ( (defined($o_ratewarn)) && (defined($o_ratecrit)) );
+    }
 
-    $perf_out .= ";" . ($o_ratewarn * 1048576) if (defined($o_ratewarn));
-    $perf_out .= ";" . ($o_ratecrit * 1048576) if ( (defined($o_ratewarn)) && (defined($o_ratecrit)) );
-
-    $perf_out .= ";" . ($o_ratewarn * 1048576) if (defined($o_ratewarn));
-    $perf_out .= ";" . ($o_ratecrit * 1048576) if ( (defined($o_ratewarn)) && (defined($o_ratecrit)) );
   } 
 }
 
